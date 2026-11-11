@@ -274,7 +274,8 @@ async function setList(l, keepPanelOnly) {
   if (l === 'movers') {
     P.innerHTML = '<p class="note" style="margin:0"><span class="spin"></span> Loading today\'s top movers…</p>';
     try {
-      MOVERS = state.live ? await api('/movers') : demoMovers();
+      MOVERS = await fetch('movers.json?t=' + Math.floor(Date.now() / 600000), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+      if (!MOVERS || !Array.isArray(MOVERS.gainers)) MOVERS = state.live ? await api('/movers') : demoMovers();
       const m = MOVERS;
       P.innerHTML = `<div class="lgrp">Biggest gainers</div>${chips(m.gainers.slice(0, 10))}<div class="lgrp">Biggest losers</div>${chips(m.losers.slice(0, 6))}<div class="lgrp">Most traded</div>${chips(m.active.slice(0, 6))}
         <div class="note" style="margin-top:4px">${moversAge(m)} Filtered: $3+, 500k+ shares, no warrants or units.</div>`;

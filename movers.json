@@ -1,0 +1,117 @@
+{
+ "updated": "2026-11-10 16:15:55 US/Eastern",
+ "source": "Alpha Vantage",
+ "gainers": [
+  {
+   "symbol": "SMX",
+   "price": 19.25,
+   "pct": 105.8824,
+   "volume": 29807388
+  },
+  {
+   "symbol": "PEPG",
+   "price": 4.61,
+   "pct": 92.887,
+   "volume": 102898912
+  },
+  {
+   "symbol": "TANH",
+   "price": 30.56,
+   "pct": 58.0145,
+   "volume": 1120736
+  },
+  {
+   "symbol": "ZIP",
+   "price": 6.57,
+   "pct": 53.1469,
+   "volume": 6132362
+  }
+ ],
+ "losers": [],
+ "active": [
+  {
+   "symbol": "NVDA",
+   "price": 168.7956,
+   "pct": -5.5266,
+   "volume": 420878524
+  },
+  {
+   "symbol": "SOXL",
+   "price": 55.89,
+   "pct": -0.5516,
+   "volume": 204747504
+  },
+  {
+   "symbol": "NVD",
+   "price": 6.23,
+   "pct": 10.8541,
+   "volume": 118836341
+  },
+  {
+   "symbol": "SNXX",
+   "price": 3.45,
+   "pct": -6.1224,
+   "volume": 113144988
+  },
+  {
+   "symbol": "PEPG",
+   "price": 4.61,
+   "pct": 92.887,
+   "volume": 102898912
+  },
+  {
+   "symbol": "JHX",
+   "price": 29.05,
+   "pct": -2.9726,
+   "volume": 101869572
+  },
+  {
+   "symbol": "INTC",
+   "price": 58.13,
+   "pct": -2.0886,
+   "volume": 98163596
+  },
+  {
+   "symbol": "SOXS",
+   "price": 55.45,
+   "pct": 0.544,
+   "volume": 94817859
+  },
+  {
+   "symbol": "SPDN",
+   "price": 8.665,
+   "pct": 0.522,
+   "volume": 92167594
+  },
+  {
+   "symbol": "RWM",
+   "price": 14.295,
+   "pct": 0.669,
+   "volume": 85100237
+  },
+  {
+   "symbol": "GRAB",
+   "price": 3.35,
+   "pct": -2.6163,
+   "volume": 82076156
+  },
+  {
+   "symbol": "SPCX",
+   "price": 143.09,
+   "pct": 0.718,
+   "volume": 80514848
+  },
+  {
+   "symbol": "TQQQ",
+   "price": 56.56,
+   "pct": -1.7714,
+   "volume": 77042261
+  },
+  {
+   "symbol": "IREN",
+   "price": 19.73,
+   "pct": -7.8468,
+   "volume": 73563001
+  }
+ ]
+}
