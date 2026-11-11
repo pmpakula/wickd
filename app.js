@@ -9,15 +9,48 @@ const store = {
 const PPY = { '5min': 252 * 78, '15min': 252 * 26, '1h': 252 * 7, '4h': 252 * 2, '1day': 252, '1week': 52 };
 const fmt = (x, d = 2) => x == null || isNaN(x) ? '—' : Number(x).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d });
 const money = x => '$' + fmt(x);
-let state = { sym: store.get('sym', 'AAPL'), intv: store.get('intv', '1day'), B: null, ind: null, src: '', ivOverride: null };
+let state = { live: false, sym: store.get('sym', 'AAPL'), intv: store.get('intv', '1day'), B: null, ind: null, src: '', ivOverride: null };
 let watch = (store.get('watch', null) || ['AAPL', 'NVDA', 'TSLA', 'SPY', 'QQQ', 'MSFT', 'AMD', 'BTC/USD']).filter(x => TICK.test(x));
 let show = store.get('show', { e20: true, e50: true, e200: true, bb: false, pat: true, lv: true });
 
+
+/* ---------- Accounts (Firebase Auth) + server API (Cloudflare Worker) ---------- */
+const CFG = window.WICKD_CONFIG || {};
+const CONFIGURED = !!(CFG.firebaseApiKey && CFG.workerUrl && !/PASTE|YOUR/i.test(CFG.firebaseApiKey + CFG.workerUrl));
+['key', 'gem'].forEach(k => { try { localStorage.removeItem('sb_' + k); } catch {} }); // purge keys older versions stored in the browser
+const AUTH = { id: null, exp: 0, rt: store.get('rt', ''), me: null };
+const AUTH_ERR = { EMAIL_EXISTS: 'That email already has an account. Sign in instead.', INVALID_LOGIN_CREDENTIALS: 'Wrong email or password.', EMAIL_NOT_FOUND: 'Wrong email or password.',
+  INVALID_PASSWORD: 'Wrong email or password.', USER_DISABLED: 'This account is disabled.', TOO_MANY_ATTEMPTS_TRY_LATER: 'Too many tries. Wait a few minutes.',
+  WEAK_PASSWORD: 'Password too weak.', INVALID_EMAIL: 'That email looks wrong.', MISSING_PASSWORD: 'Enter your password.', OPERATION_NOT_ALLOWED: 'Email sign-in is not turned on yet (admin setup).' };
+async function idt(path, body) {
+  const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:' + path + '?key=' + encodeURIComponent(CFG.firebaseApiKey),
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const code = String((j.error && j.error.message) || '').split(/[ :]/)[0]; throw new Error(AUTH_ERR[code] || 'Sign-in problem. Try again.'); }
+  return j;
+}
+function setSession(id, rt, exp) { AUTH.id = id; AUTH.exp = Date.now() + (+exp || 3600) * 1000; if (rt) { AUTH.rt = rt; store.set('rt', rt); } }
+async function refreshSession() {
+  if (!AUTH.rt) throw Object.assign(new Error('Please sign in.'), { status: 401 });
+  const r = await fetch('https://securetoken.googleapis.com/v1/token?key=' + encodeURIComponent(CFG.firebaseApiKey),
+    { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(AUTH.rt) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { clearSession(); throw Object.assign(new Error('Please sign in again.'), { status: 401 }); }
+  setSession(j.id_token, j.refresh_token, j.expires_in);
+}
+async function idToken(force) { if (force || !AUTH.id || Date.now() > AUTH.exp - 60000) await refreshSession(); return AUTH.id; }
+function clearSession() { AUTH.id = null; AUTH.rt = ''; AUTH.me = null; store.set('rt', ''); state.live = false; }
+async function api(path, opts = {}) {
+  const t = await idToken();
+  const r = await fetch(CFG.workerUrl.replace(/\/+$/, '') + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + t } });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) { const m = j.error && (j.error.message || j.error); throw Object.assign(new Error(typeof m === 'string' ? m : 'Server error ' + r.status), { status: r.status, body: j }); }
+  return j;
+}
+
 /* ---------- Data ---------- */
-async function fetchTD(sym, intv, key) {
-  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(sym)}&interval=${intv}&outputsize=500&timezone=America/New_York&apikey=${encodeURIComponent(key)}`;
-  const r = await fetch(url);
-  const j = await r.json();
+async function fetchTD(sym, intv) {
+  const j = await api(`/td?symbol=${encodeURIComponent(sym)}&interval=${intv}&outputsize=500`);
   if (j.status === 'error' || !j.values) throw new Error(j.message || 'No data returned');
   const intraday = !['1day', '1week'].includes(intv);
   const B = j.values.slice().reverse().map(v => ({
@@ -227,9 +260,8 @@ function demoDay(sym) {
   }
   return B;
 }
-async function fetchBatch(syms, key) {
-  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(syms.join(','))}&interval=5min&outputsize=400&timezone=America/New_York&apikey=${encodeURIComponent(key)}`;
-  const j = await (await fetch(url)).json();
+async function fetchBatch(syms) {
+  const j = await api(`/td?symbol=${encodeURIComponent(syms.join(','))}&interval=5min&outputsize=400`);
   if (j.status === 'error') throw new Error(j.message);
   const map = syms.length === 1 ? { [syms[0]]: j } : j, out = {};
   for (const sym of syms) {
@@ -273,16 +305,16 @@ $('scanBtn').onclick = async () => {
   if (scanning) return; scanning = true;
   const syms = [...new Set($('hotList').value.toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))].slice(0, 40);
   store.set('hot', syms.join(' '));
-  const acct = +$('acct').value || 0, key = store.get('key', '');
+  const acct = +$('acct').value || 0;
   hotRes = []; renderHot(); $('prog').style.display = 'block'; $('scanBtn').innerHTML = '<span class="spin"></span> Scanning…';
   const setProg = (d) => $('prog').firstElementChild.style.width = (d / syms.length * 100) + '%';
-  let live = !!key, done = 0;
+  const live = state.live; let done = 0;
   for (let c = 0; c < syms.length; c += 8) {
     const chunk = syms.slice(c, c + 8);
     let data = null;
     if (live) {
-      try { data = await fetchBatch(chunk, key); }
-      catch (e) { live = false; $('scanNote').innerHTML = e instanceof TypeError ? '<b style="color:#fca5a5">Can\'t reach Twelve Data from this preview — showing simulated results.</b> The Firebase version scans live.' : `<b style="color:#fca5a5">Twelve Data: ${escH(e.message)}</b> — showing simulated results.`; }
+      try { data = await fetchBatch(chunk); }
+      catch (e) { data = Object.fromEntries(chunk.map(s => [s, { err: e instanceof TypeError ? 'Can\'t reach the WICKD server' : e.message }])); }
     }
     for (const sym of chunk) {
       const d = data ? data[sym] : { B: demoDay(sym) };
@@ -293,10 +325,10 @@ $('scanBtn').onclick = async () => {
     }
     renderHot();
     if (live && c + 8 < syms.length) {
-      for (let w = 61; w > 0; w--) { $('scanBtn').textContent = `Next batch in ${w}s (free-plan limit)…`; await new Promise(r => setTimeout(r, 1000)); }
+      for (let w = 61; w > 0; w--) { $('scanBtn').textContent = `Next batch in ${w}s (data-plan limit)…`; await new Promise(r => setTimeout(r, 1000)); }
     }
   }
-  if (!key) $('scanNote').innerHTML = '<b style="color:#fcd34d">Simulated results</b> — add your free Twelve Data key under ⚙ Data for real prices.';
+  if (!live) $('scanNote').innerHTML = '<b style="color:#fcd34d">Demo mode: simulated prices.</b> Sign in with an approved account for real prices.';
   scanning = false; $('scanBtn').textContent = 'Scan again'; setTimeout(() => $('prog').style.display = 'none', 800);
 };
 function showTab(t, noLoad) {
@@ -327,24 +359,23 @@ function md(t) {
   return out + (inList ? '</ul>' : '');
 }
 async function gemini(contents, useSearch) {
-  const key = store.get('gem', ''), models = [store.get('gemModel', 'gemini-3.5-flash'), 'gemini-2.5-flash'].filter((m, i, a) => a.indexOf(m) === i);
+  const models = [store.get('gemModel', 'gemini-3.5-flash'), 'gemini-2.5-flash'].filter((m, i, a) => a.indexOf(m) === i);
   let lastErr;
   for (const model of models) {
     for (const search of useSearch ? [true, false] : [false]) {
-      const body = { systemInstruction: { parts: [{ text: AI_SYS }] }, contents, generationConfig: { temperature: 0.4, maxOutputTokens: 1200 } };
-      if (search) body.tools = [{ google_search: {} }];
       try {
-        const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, referrerPolicy: 'strict-origin-when-cross-origin', body: JSON.stringify(body) });
-        const j = await r.json();
-        if (!r.ok) { lastErr = new Error((j.error && j.error.message) || r.status); if (r.status === 404) break; if (search) continue; if (r.status === 429 || r.status >= 500) continue; throw lastErr; }
+        const j = await api('/ai', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, system: AI_SYS, contents, search }) });
         const cand = j.candidates && j.candidates[0];
         const text = cand && cand.content && cand.content.parts ? cand.content.parts.map(p => p.text || '').join('') : '';
         const srcs = ((cand && cand.groundingMetadata && cand.groundingMetadata.groundingChunks) || []).map(g => g.web).filter(Boolean);
         return { text: text || '(no answer returned)', srcs, model, searched: search, searchFailed: useSearch && !search };
-      } catch (e) { lastErr = e; if (e instanceof TypeError) throw e; }
+      } catch (e) {
+        lastErr = e; if (e instanceof TypeError || e.status === 401 || e.status === 403) throw e;
+        if (e.status === 404) break; if (search) continue; if (e.status === 429 || e.status >= 500) continue; throw e;
+      }
     }
   }
-  throw lastErr || new Error('Gemini request failed');
+  throw lastErr || new Error('AI request failed');
 }
 function aiRenderAll(pending) {
   $('aiOut').innerHTML = aiHist.map(m => m.role === 'user'
@@ -354,18 +385,15 @@ function aiRenderAll(pending) {
   $('aiOut').scrollTop = $('aiOut').scrollHeight;
 }
 async function aiSend(prompt, shown) {
-  if (!store.get('gem', '')) {
-    $('aiOut').innerHTML = `<p>Add a free Gemini API key to turn this on:</p><ul><li>Go to <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:#93c5fd">aistudio.google.com/apikey</a> (same Google account)</li><li>Tap <b>Create API key</b>, copy it</li><li>Here: <b>⚙ Data</b> → paste into <b>Gemini API key</b> → Save</li></ul>`;
-    return;
-  }
+  if (!state.live) { $('aiOut').innerHTML = '<p>AI needs a signed-in, approved account. Tap <b>🔑 Sign in</b>.</p>'; return; }
   aiHist.push({ role: 'user', text: prompt, shown }); aiRenderAll(true);
   const contents = aiHist.map(m => ({ role: m.role === 'user' ? 'user' : 'model', parts: [{ text: m.text }] }));
   try {
-    const r = await gemini(contents, !!store.get('gemSearch', false) && !searchOff);
+    const r = await gemini(contents, !!store.get('gemSearch', false) && !!(AUTH.me && AUTH.me.search) && !searchOff);
     if (r.searchFailed) searchOff = true;
-    aiHist.push({ role: 'model', text: r.text, srcs: r.srcs, note: `${r.model}${r.searched ? ' · with Google Search' : ''}${r.searchFailed ? ' · news search unavailable on this key (needs billing) — answered from chart data only' : ''}` });
+    aiHist.push({ role: 'model', text: r.text, srcs: r.srcs, note: `${r.model}${r.searched ? ' · with Google Search' : ''}${r.searchFailed ? ' · live news is off on the server — answered from chart data only' : ''}` });
   } catch (e) {
-    aiHist.push({ role: 'model', text: e instanceof TypeError ? "Couldn't reach Gemini from this preview. It works from your GitHub Pages site." : `Gemini error: ${e.message}` });
+    aiHist.push({ role: 'model', text: e instanceof TypeError ? "Couldn't reach the WICKD server." : `AI error: ${e.message}` });
   }
   aiRenderAll(false);
 }
@@ -386,13 +414,121 @@ function askHot(sym) {
 }
 function setAI(on) {
   store.set('aiOn', on); document.body.classList.toggle('noai', !on);
-  $('aiToggle').classList.toggle('ai-on', on); $('aiToggle').textContent = on ? '✨ AI on' : '✨ AI off';
+  $('aiToggle').classList.toggle('ai-on', on); $('aiToggle').textContent = on ? '✨ AI' : '✨ Off';
   if (!on) $('aiSheet').classList.remove('on');
 }
 setAI(store.get('aiOn', true));
 $('aiToggle').onclick = () => setAI(!store.get('aiOn', true));
 $('aiClose').onclick = () => $('aiSheet').classList.remove('on');
 $('aiForm').addEventListener('submit', e => { e.preventDefault(); const q = $('aiQ').value.trim(); if (!q) return; $('aiQ').value = ''; aiSend(q, q); });
+
+
+/* ---------- Sign-in gate ---------- */
+const PW_MIN = 10;
+function gmsg(t, ok) { const m = $('gmsg'); if (m) { m.textContent = t || ''; m.className = 'gmsg ' + (ok ? 'ok' : 'err'); } }
+function busy(btn, on, label) { btn.disabled = on; btn.innerHTML = on ? '<span class="spin"></span>' : label; }
+function view(name, msg) {
+  $('gate').classList.add('on'); document.body.classList.add('locked');
+  const demoBtn = '<button class="demo" id="gDemo">Look around in demo mode (fake prices)</button>';
+  const em = escH(AUTH.me && AUTH.me.email || store.get('email', ''));
+  const V = {
+    setup: `<p>The admin hasn't finished connecting WICKD to its server yet.</p>${demoBtn}`,
+    login: `<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
+      <label>Password</label><input id="gPw" type="password" autocomplete="current-password" required>
+      <button class="go" id="gGo">Sign in</button></form>
+      <div class="links"><button class="lnk" id="gToSignup">Create account</button><button class="lnk" id="gForgot">Forgot password?</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
+    signup: `<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
+      <label>Password (${PW_MIN}+ characters)</label><input id="gPw" type="password" autocomplete="new-password" minlength="${PW_MIN}" required>
+      <label>Password again</label><input id="gPw2" type="password" autocomplete="new-password" minlength="${PW_MIN}" required>
+      <button class="go" id="gGo">Create account</button></form>
+      <div class="links"><button class="lnk" id="gToLogin">I already have an account</button></div><div class="gmsg" id="gmsg"></div>`,
+    verify: `<p>We emailed a link to <b>${em}</b>.<br>Open it to confirm your email, then tap below.</p>
+      <button class="go" id="gCheck">I clicked the link</button>
+      <div class="links"><button class="lnk" id="gResend">Resend email</button><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>`,
+    pending: `<p>Thanks, <b>${em}</b>.<br>Your account is waiting for the admin to approve it.</p>
+      <button class="go" id="gCheck">Check again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
+    revoked: `<p>Access for <b>${em}</b> was turned off. Contact the admin.</p><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div>`,
+    error: `<p>Couldn't reach the WICKD server.</p><button class="go" id="gCheck">Try again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
+  };
+  $('gView').innerHTML = V[name]; if (msg) gmsg(msg);
+  const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
+  on('gDemo', () => openApp(false));
+  on('gToSignup', () => view('signup')); on('gToLogin', () => view('login'));
+  on('gOut', () => { clearSession(); view('login'); });
+  on('gCheck', async () => { busy($('gCheck'), true); try { await idToken(true); } catch {} gate(); });
+  on('gResend', async () => { try { await idt('sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: await idToken() }); gmsg('Sent. Check your inbox and spam folder.', true); } catch (e) { gmsg(e.message); } });
+  on('gForgot', async () => {
+    const email = $('gEmail').value.trim(); if (!email) return gmsg('Type your email first, then tap Forgot password.');
+    try { await idt('sendOobCode', { requestType: 'PASSWORD_RESET', email }); } catch {}
+    gmsg('If that email has an account, a reset link is on its way.', true);
+  });
+  const f = $('gForm');
+  if (f) f.onsubmit = async e => {
+    e.preventDefault();
+    const email = $('gEmail').value.trim(), pw = $('gPw').value, btn = $('gGo'), label = btn.textContent;
+    if (name === 'signup') {
+      if (pw.length < PW_MIN) return gmsg(`Use at least ${PW_MIN} characters.`);
+      if (pw !== $('gPw2').value) return gmsg("Passwords don't match.");
+    }
+    busy(btn, true);
+    try {
+      const j = await idt(name === 'signup' ? 'signUp' : 'signInWithPassword', { email, password: pw, returnSecureToken: true });
+      setSession(j.idToken, j.refreshToken, j.expiresIn); store.set('email', email);
+      if (name === 'signup') await idt('sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: j.idToken });
+      gate();
+    } catch (err) { busy(btn, false, label); gmsg(err.message); }
+  };
+}
+function openApp(live) {
+  state.live = !!live; $('gate').classList.remove('on'); document.body.classList.remove('locked');
+  $('setBtn').textContent = live ? '👤 Me' : '🔑 Sign in';
+  state.B = null; hotRes = []; renderHot();
+  if (!live) $('scanNote').innerHTML = '<b style="color:#fcd34d">Demo mode: simulated prices.</b> Sign in with an approved account for real prices.';
+  else $('scanNote').textContent = 'Scans 5-minute charts, 8 tickers per minute (data-plan limit). Paste today\'s premarket gainers to scan them too.';
+  if ($('vAn').classList.contains('on')) load(state.sym);
+}
+async function gate() {
+  if (!CONFIGURED) return view('setup');
+  if (!AUTH.rt) return view('login');
+  try { AUTH.me = await api('/me'); }
+  catch (e) {
+    if (e.status === 403 && e.message === 'unverified') return view('verify');
+    if (e.status === 401) { clearSession(); return view('login', e.message); }
+    return view('error');
+  }
+  store.set('email', AUTH.me.email);
+  if (AUTH.me.status === 'approved') {
+    openApp(true);
+    if (!AUTH.me.keys.td && !AUTH.me.shared.td) { $('setBtn').click(); $('keysMsg').innerHTML = '<span style="color:#fcd34d">Welcome! Paste your Twelve Data key to get real prices.</span>'; }
+    return;
+  }
+  view(AUTH.me.status === 'revoked' ? 'revoked' : 'pending');
+}
+
+/* ---------- Admin: approve / revoke users ---------- */
+async function loadUsers() {
+  $('adminList').innerHTML = '<p class="note"><span class="spin"></span> Loading…</p>';
+  try {
+    const { users } = await api('/admin/users');
+    const when = t => t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+    $('adminList').innerHTML = users.length ? users.map(u => `<div class="urow" data-em="${escH(u.email)}">
+      <div class="em">${escH(u.email)}<small>${u.status === 'pending' ? 'asked ' + when(u.requested) : 'updated ' + when(u.updated)}</small></div>
+      <span class="pill ${escH(u.status || 'pending')}">${escH(u.status || 'pending')}</span>
+      ${u.status !== 'approved' ? '<button data-act="approved" style="border-color:#16a34a">Approve</button>' : ''}
+      ${u.status !== 'revoked' ? '<button data-act="revoked">Revoke</button>' : ''}
+      <button data-act="delete" style="color:#fca5a5">Delete</button></div>`).join('') : '<p class="note">No users yet. People appear here after they create an account and confirm their email.</p>';
+  } catch (e) { $('adminList').innerHTML = `<p class="note" style="color:#fca5a5">${escH(e.message)}</p>`; }
+}
+$('adminBtn').onclick = () => { $('modal').classList.remove('on'); $('adminM').classList.add('on'); loadUsers(); };
+$('adminClose').onclick = () => $('adminM').classList.remove('on');
+$('adminList').addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const email = b.closest('[data-em]').dataset.em, action = b.dataset.act;
+  if (action === 'delete' && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to delete'; return; }
+  b.disabled = true;
+  try { await api('/admin/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, action }) }); loadUsers(); }
+  catch (err) { b.disabled = false; b.textContent = err.message; }
+});
 
 /* ---------- Flow ---------- */
 let loading = false;
@@ -404,17 +540,16 @@ async function load(sym) {
   state.sym = sym; state.intv = intv; $('sym').value = sym;
   store.set('sym', sym); store.set('intv', intv);
   $('goBtn').innerHTML = '<span class="spin"></span>';
-  const key = store.get('key', '');
   let res;
-  try {
-    if (!key) throw { demo: true };
-    res = await fetchTD(sym, intv, key);
-    state.src = 'Twelve Data · live'; banner('');
-  } catch (e) {
+  if (state.live) {
+    try { res = await fetchTD(sym, intv); state.src = 'Twelve Data · live'; banner(''); }
+    catch (e) {
+      banner(e instanceof TypeError ? 'Can\'t reach the WICKD server. Check your connection.' : `Data error: ${escH(e.message)}`, true);
+      loading = false; $('goBtn').textContent = 'Analyze'; return;
+    }
+  } else {
     res = demo(sym, intv); state.src = 'DEMO data';
-    if (e && e.demo) banner('Showing <b>demo data</b> (simulated prices). Tap <b>⚙ Data</b> and add a free Twelve Data key for real prices.');
-    else if (e instanceof TypeError) banner('Couldn\'t reach Twelve Data from here (this preview blocks outside connections). Showing <b>demo data</b> — the deployed version gets live prices.', true);
-    else banner(`Twelve Data: ${escH(e.message)}. Showing <b>demo data</b>.`, true);
+    banner('<b>Demo mode:</b> simulated prices. Sign in with an approved account for real prices.');
   }
   if (res.B.length < 60) { banner('Not enough history for this symbol/interval.', true); loading = false; $('goBtn').textContent = 'Analyze'; return; }
   state.B = res.B; state.ind = Engine.compute(res.B);
@@ -440,10 +575,39 @@ $('toggles').addEventListener('click', e => {
   show[k] = !show[k]; store.set('show', show); e.target.classList.toggle('on', show[k]); state.B && render();
 });
 document.querySelectorAll('#toggles .tg').forEach(b => b.classList.toggle('on', !!show[b.dataset.k]));
-$('setBtn').onclick = () => { $('keyIn').value = store.get('key', ''); $('gemIn').value = store.get('gem', ''); $('gemModel').value = store.get('gemModel', 'gemini-3.5-flash'); $('gemSearch').checked = !!store.get('gemSearch', false); $('aiOnIn').checked = store.get('aiOn', true); $('modal').classList.add('on'); };
-$('wipeBtn').onclick = () => { ['key', 'gem'].forEach(k => store.set(k, '')); $('keyIn').value = ''; $('gemIn').value = ''; $('wipeBtn').textContent = 'Keys cleared ✓'; setTimeout(() => $('wipeBtn').textContent = 'Clear saved keys', 2000); };
+$('setBtn').onclick = () => {
+  if (!state.live) { $('gate').classList.add('on'); document.body.classList.add('locked'); gate(); return; }
+  $('acctWho').innerHTML = `Signed in as <b>${escH(AUTH.me.email)}</b>${AUTH.me.admin ? ' · <b style="color:#c4b5fd">Admin</b>' : ''}`;
+  $('gemModel').value = store.get('gemModel', 'gemini-3.5-flash'); $('aiOnIn').checked = store.get('aiOn', true);
+  $('gemSearch').checked = !!store.get('gemSearch', false); $('gemSearch').disabled = !AUTH.me.search;
+  $('gemSearchLbl').textContent = AUTH.me.search ? 'Live news via Google Search' : 'Live news via Google Search (off on the server)';
+  $('adminBtn').style.display = AUTH.me.admin ? '' : 'none';
+  renderKeyHints(); $('keysMsg').textContent = ''; $('tdIn').value = ''; $('gemIn').value = '';
+  $('modal').classList.add('on');
+};
+function renderKeyHints() {
+  const k = (AUTH.me && AUTH.me.keys) || {}, sh = (AUTH.me && AUTH.me.shared) || {};
+  const line = (kind, h, shared) => h ? `Saved ${escH(h)} · <button class="lnk" data-rm="${kind}" style="background:none;border:0;color:#fca5a5;cursor:pointer;font:600 12.5px Inter;padding:0">Remove</button>`
+    : shared ? 'Not set — using the shared key from the admin.' : '<span style="color:#fcd34d">Not set yet.</span>';
+  $('tdHint').innerHTML = line('td', k.td, sh.td); $('gemHint').innerHTML = line('gem', k.gem, sh.gem);
+}
+async function saveKeys(body) {
+  $('keysMsg').textContent = 'Saving…';
+  try { const r = await api('/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    AUTH.me.keys = r.keys; renderKeyHints(); $('tdIn').value = ''; $('gemIn').value = ''; $('keysMsg').innerHTML = '<span style="color:#86efac">Saved ✓</span>';
+    hotRes = []; renderHot(); state.B = null;
+  } catch (e) { $('keysMsg').innerHTML = `<span style="color:#fca5a5">${escH(e.message)}</span>`; }
+}
+$('keysSave').onclick = () => {
+  const body = {}; const td = $('tdIn').value.trim(), gem = $('gemIn').value.trim();
+  if (td) body.td = td; if (gem) body.gem = gem;
+  if (!td && !gem) { $('keysMsg').textContent = 'Paste a key first.'; return; }
+  saveKeys(body);
+};
+$('modal').addEventListener('click', e => { const b = e.target.closest('[data-rm]'); if (b) saveKeys({ [b.dataset.rm]: null }); });
 $('cancelBtn').onclick = () => $('modal').classList.remove('on');
-$('saveBtn').onclick = () => { store.set('key', $('keyIn').value.trim()); store.set('gem', $('gemIn').value.trim()); store.set('gemModel', $('gemModel').value); store.set('gemSearch', $('gemSearch').checked); searchOff = false; setAI($('aiOnIn').checked); $('modal').classList.remove('on'); load(state.sym); };
+$('saveBtn').onclick = () => { store.set('gemModel', $('gemModel').value); store.set('gemSearch', $('gemSearch').checked); searchOff = false; setAI($('aiOnIn').checked); $('modal').classList.remove('on'); };
+$('outBtn').onclick = () => { $('modal').classList.remove('on'); clearSession(); hotRes = []; renderHot(); state.B = null; gate(); };
 let timer = null;
 $('autoBtn').onclick = () => {
   if (timer) { clearInterval(timer); timer = null; $('autoBtn').textContent = '⟳ Off'; }
@@ -452,5 +616,6 @@ $('autoBtn').onclick = () => {
 
 $('sym').value = state.sym; $('intv').value = state.intv;
 initCharts();
+gate();
 try { if ('serviceWorker' in navigator && location.protocol === 'https:' && window.top === window) navigator.serviceWorker.register('sw.js').catch(() => {}); } catch {}
 })();

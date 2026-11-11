@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.twelvedata.com https://generativelanguage.googleapis.com https://fonts.googleapis.com https://fonts.gstatic.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#0b0f14">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -26,7 +26,8 @@ body{padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-i
 header{display:flex;align-items:center;justify-content:space-between;padding:6px 2px 12px}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:21px;letter-spacing:.06em}
 .brand .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,#22c55e,#3b82f6);display:grid;place-items:center}
-.iconbtn{background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 12px;font:600 13px Inter;cursor:pointer}
+.iconbtn{background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:8px 10px;font:600 13px Inter;cursor:pointer;white-space:nowrap}
+@media(max-width:420px){.iconbtn{padding:8px 8px;font-size:12.5px}.brand{font-size:18px}.brand svg{width:28px;height:28px}}
 .search{display:flex;gap:8px;flex-wrap:wrap}
 .search input,.search select{background:var(--panel);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px 12px;font:600 15px Inter;outline:none}
 .search input{flex:1;min-width:120px;text-transform:uppercase}
@@ -115,6 +116,24 @@ header{display:flex;align-items:center;justify-content:space-between;padding:6px
 .aiask{display:flex;gap:8px;margin-top:10px}
 .aiask input{flex:1;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:11px;font:500 14px Inter}
 .hc .top .r{display:flex;gap:6px;align-items:center}
+body.locked{overflow:hidden}
+.gate{position:fixed;inset:0;z-index:80;background:radial-gradient(1200px 600px at 50% -10%,#14301f 0,#0b0f14 60%);display:none;align-items:center;justify-content:center;padding:18px}
+.gate.on{display:flex}
+.gbox{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:22px}
+.gtitle{text-align:center;font-weight:800;font-size:26px;letter-spacing:.08em;margin-bottom:14px}.gtitle span{color:#3ee887}
+.gbox label{display:block;font-size:12px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin-top:10px}
+.gbox input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:12px;font:500 15px Inter;margin-top:5px}
+.gbox input:focus{border-color:var(--blue);outline:none}
+.gbox .go{width:100%;margin-top:14px}
+.gbox .lnk{background:none;border:0;color:#93c5fd;font:600 13.5px Inter;cursor:pointer;padding:6px 0}
+.gbox .links{display:flex;justify-content:space-between;margin-top:8px}
+.gbox p{color:var(--mut);font-size:14px;line-height:1.5;text-align:center}
+.gmsg{font-size:13.5px;margin-top:10px;text-align:center;min-height:18px}.gmsg.err{color:#fca5a5}.gmsg.ok{color:#86efac}
+.demo{width:100%;margin-top:12px;background:none;border:1px dashed var(--line);color:var(--mut);border-radius:10px;padding:10px;font:600 13px Inter;cursor:pointer}
+.urow{display:flex;align-items:center;gap:8px;padding:10px;border-radius:10px;background:var(--panel2);margin-bottom:8px;flex-wrap:wrap}
+.urow .em{flex:1;min-width:150px;font-weight:600;font-size:14px;word-break:break-all}.urow small{display:block;color:var(--mut);font-weight:500;font-size:11.5px}
+.pill{font:700 11px Inter;padding:4px 8px;border-radius:99px;text-transform:uppercase}.pill.pending{background:#422006;color:#fcd34d}.pill.approved{background:#052e16;color:#86efac}.pill.revoked{background:#450a0a;color:#fca5a5}
+.urow button{font:600 12.5px Inter;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);cursor:pointer}
 footer{color:var(--mut);font-size:12px;line-height:1.5;padding:18px 4px 30px;text-align:center}
 footer a{color:#93c5fd}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
@@ -162,7 +181,7 @@ footer a{color:#93c5fd}
     <div style="display:flex;gap:6px">
       <button class="iconbtn" id="aiToggle" title="Turn AI features on/off">✨ AI</button>
       <button class="iconbtn" id="autoBtn" title="Auto-refresh every 2 min">⟳ Off</button>
-      <button class="iconbtn" id="setBtn">⚙ Data</button>
+      <button class="iconbtn" id="setBtn">👤 Account</button>
     </div>
   </header>
 
@@ -256,17 +275,40 @@ footer a{color:#93c5fd}
 </div>
 
 <div class="modal" id="modal"><div class="box">
-  <h2>Data source</h2>
-  <p>Live prices come from Twelve Data. Get a free key (800 calls/day, ~1 call per analysis) at <a href="https://twelvedata.com/register" target="_blank" rel="noopener" style="color:#93c5fd">twelvedata.com/register</a>, then paste it here. It's stored only in this browser. Leave blank for demo data.</p>
-  <label>Twelve Data API key</label>
-  <input id="keyIn" placeholder="paste key" autocomplete="off" spellcheck="false">
-  <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:var(--txt);margin-bottom:10px"><input type="checkbox" id="aiOnIn" style="width:auto;margin:0"> <b>AI features on</b> (✨ buttons powered by Google Gemini)</label>
-  <label>Google Gemini API key (for ✨ Ask AI)</label>
-  <input id="gemIn" placeholder="from aistudio.google.com/apikey" autocomplete="off" spellcheck="false">
+  <h2>Account</h2>
+  <p id="acctWho"></p>
+  <div style="background:var(--panel2);border-radius:12px;padding:12px;margin-bottom:12px">
+    <b style="font-size:14px">My API keys</b>
+    <p class="note" style="margin:4px 0 6px">Saved encrypted on the WICKD server, locked to your account. Nobody else can use them, and they never come back to this screen.</p>
+    <label>Twelve Data key (real prices)</label>
+    <input id="tdIn" type="password" autocomplete="off" spellcheck="false" placeholder="paste to add or replace">
+    <div class="note" id="tdHint" style="margin:-6px 0 8px"></div>
+    <label>Gemini key (AI, optional)</label>
+    <input id="gemIn" type="password" autocomplete="off" spellcheck="false" placeholder="paste to add or replace">
+    <div class="note" id="gemHint" style="margin:-6px 0 8px"></div>
+    <button class="go" id="keysSave" style="width:100%">Save keys</button>
+    <div class="note" id="keysMsg" style="margin-top:6px"></div>
+  </div>
+  <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:var(--txt);margin-bottom:10px"><input type="checkbox" id="aiOnIn" style="width:auto;margin:0"> <span><b>AI features on</b> (✨ buttons powered by Google Gemini)</span></label>
   <label>Gemini model</label>
-  <select id="gemModel"><option value="gemini-3.5-flash">Gemini 3.5 Flash (fast, free tier)</option><option value="gemini-2.5-flash">Gemini 2.5 Flash (fallback)</option><option value="gemini-2.5-pro">Gemini 2.5 Pro (smarter, slower)</option></select>
-  <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:13.5px;color:var(--txt);margin-bottom:12px"><input type="checkbox" id="gemSearch" style="width:auto;margin:0"> Live news via Google Search (needs billing on the key — your AI Pro $10/mo Cloud credit can cover it)</label>
-  <div class="row"><button class="btn2" id="wipeBtn" style="margin-right:auto;color:#fca5a5">Clear saved keys</button><button class="btn2" id="cancelBtn">Cancel</button><button class="go" id="saveBtn">Save</button></div>
+  <select id="gemModel"><option value="gemini-3.5-flash">Gemini 3.5 Flash (fast)</option><option value="gemini-2.5-flash">Gemini 2.5 Flash (fallback)</option><option value="gemini-2.5-pro">Gemini 2.5 Pro (smarter, slower)</option></select>
+  <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:13.5px;color:var(--txt);margin-bottom:12px"><input type="checkbox" id="gemSearch" style="width:auto;margin:0"> <span id="gemSearchLbl">Live news via Google Search</span></label>
+  <div class="row" style="flex-wrap:wrap">
+    <button class="btn2" id="adminBtn" style="display:none;margin-right:auto">🛡 Manage users</button>
+    <button class="btn2" id="outBtn" style="color:#fca5a5">Sign out</button>
+    <button class="btn2" id="cancelBtn">Cancel</button><button class="go" id="saveBtn">Save</button>
+  </div>
+  <p class="note" style="margin-top:12px">API keys live on the WICKD server, not on this device.</p>
+</div></div>
+<div class="modal" id="adminM"><div class="box" style="max-width:560px;max-height:86vh;display:flex;flex-direction:column">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0">🛡 Users</h2><button class="btn2" id="adminClose">Close</button></div>
+  <p class="note" style="margin:6px 0 10px">New sign-ups wait here until you approve them. Revoke cuts access within about a minute.</p>
+  <div id="adminList" style="overflow:auto;flex:1"></div>
+</div></div>
+<div class="gate" id="gate"><div class="gbox">
+  <img src="icon.svg" alt="" width="64" height="64" style="display:block;margin:0 auto 6px">
+  <div class="gtitle">WICK<span>D</span></div>
+  <div id="gView"></div>
 </div></div>
 
 <div class="sheet" id="aiSheet"><div class="box">
@@ -275,6 +317,7 @@ footer a{color:#93c5fd}
   <form class="aiask" id="aiForm"><input id="aiQ" placeholder="Ask a follow-up…" autocomplete="off"><button class="aibtn">Ask</button></form>
 </div></div>
 
+<script src="config.js"></script>
 <script src="engine.js"></script>
 <script src="app.js"></script>
 </body>
