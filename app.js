@@ -459,9 +459,12 @@ function view(name, msg) {
   $('gate').classList.add('on'); document.body.classList.add('locked');
   const demoBtn = '<button class="demo" id="gDemo">Look around in demo mode (fake prices)</button>';
   const em = escH(AUTH.me && AUTH.me.email || store.get('email', ''));
+  const PW = CFG.passwordLogin === true || !GOOGLE_ON;
+  if (!PW && (name === 'signup' || name === 'verify')) name = 'login';
   const V = {
     setup: `<p>The admin hasn't finished connecting WICKD to its server yet.</p>${demoBtn}`,
-    login: `${GOOGLE_ON ? '<div class="gsso" id="gGoogle"></div><div class="orline">or use email</div>' : ''}<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
+    login: !PW ? `<p>Sign in or make your account with Google.<br>New here? Your account waits for the admin to approve it.</p><div class="gsso" id="gGoogle"></div><div class="gmsg" id="gmsg"></div>${demoBtn}`
+      : `${GOOGLE_ON ? '<div class="gsso" id="gGoogle"></div><div class="orline">or use email</div>' : ''}<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
       <label>Password</label><input id="gPw" type="password" autocomplete="current-password" required>
       <button class="go" id="gGo">Sign in</button></form>
       <div class="links"><button class="lnk" id="gToSignup">Create account</button><button class="lnk" id="gForgot">Forgot password?</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
