@@ -1,5 +1,5 @@
-/* WICKD settings — the admin fills these two lines in once (see the setup guide). Both values are safe to be public. */
+/* WICKD settings. Both values are safe to be public. */
 window.WICKD_CONFIG = {
-  firebaseApiKey: 'PASTE_FIREBASE_WEB_API_KEY',
-  workerUrl: 'https://wickd-api.YOUR-SUBDOMAIN.workers.dev',
+  firebaseApiKey: 'AIzaSyBrxuXQbDzyEEyZAfi874w98ShJ37GQts4',
+  workerUrl: 'https://patient-pond-6d08.pmpakula.workers.dev',
 };
