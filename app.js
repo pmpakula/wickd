@@ -23,7 +23,7 @@ const CONFIGURED = !!(CFG.firebaseApiKey && CFG.workerUrl && !/PASTE|YOUR/i.test
 const AUTH = { id: null, exp: 0, rt: store.get('rt', ''), me: null };
 const AUTH_ERR = { EMAIL_EXISTS: 'That email already has an account. Sign in instead.', INVALID_LOGIN_CREDENTIALS: 'Wrong email or password.', EMAIL_NOT_FOUND: 'Wrong email or password.',
   INVALID_PASSWORD: 'Wrong email or password.', USER_DISABLED: 'This account is disabled.', TOO_MANY_ATTEMPTS_TRY_LATER: 'Too many tries. Wait a few minutes.',
-  WEAK_PASSWORD: 'Password too weak.', INVALID_EMAIL: 'That email looks wrong.', MISSING_PASSWORD: 'Enter your password.', OPERATION_NOT_ALLOWED: 'Email sign-in is not turned on yet (admin setup).' };
+  WEAK_PASSWORD: 'Password too weak.', INVALID_EMAIL: 'That email looks wrong.', MISSING_PASSWORD: 'Enter your password.', OPERATION_NOT_ALLOWED: 'That sign-in method is not turned on yet (admin setup).', INVALID_IDP_RESPONSE: 'Google sign-in failed. Try again.', FEDERATED_USER_ID_ALREADY_LINKED: 'That Google account is linked to another user.' };
 async function idt(path, body) {
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:' + path + '?key=' + encodeURIComponent(CFG.firebaseApiKey),
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -41,7 +41,7 @@ async function refreshSession() {
   setSession(j.id_token, j.refresh_token, j.expires_in);
 }
 async function idToken(force) { if (force || !AUTH.id || Date.now() > AUTH.exp - 60000) await refreshSession(); return AUTH.id; }
-function clearSession() { AUTH.id = null; AUTH.rt = ''; AUTH.me = null; store.set('rt', ''); state.live = false; }
+function clearSession() { try { window.google && google.accounts && google.accounts.id.disableAutoSelect(); } catch {} AUTH.id = null; AUTH.rt = ''; AUTH.me = null; store.set('rt', ''); state.live = false; }
 async function api(path, opts = {}) {
   const t = await idToken();
   const r = await fetch(CFG.workerUrl.replace(/\/+$/, '') + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + t } });
@@ -425,6 +425,32 @@ $('aiClose').onclick = () => $('aiSheet').classList.remove('on');
 $('aiForm').addEventListener('submit', e => { e.preventDefault(); const q = $('aiQ').value.trim(); if (!q) return; $('aiQ').value = ''; aiSend(q, q); });
 
 
+
+/* ---------- Sign in with Google (Google Identity Services → Firebase signInWithIdp) ---------- */
+const GOOGLE_ON = !!(CFG.googleClientId && !/PASTE|YOUR/i.test(CFG.googleClientId));
+let gsiLoading = null;
+function loadGsi() {
+  if (window.google && google.accounts && google.accounts.id) return Promise.resolve();
+  if (!gsiLoading) gsiLoading = new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://accounts.google.com/gsi/client'; sc.async = true; sc.onload = res; sc.onerror = () => { gsiLoading = null; rej(new Error('Google sign-in could not load.')); }; document.head.appendChild(sc); });
+  return gsiLoading;
+}
+async function googleButton() {
+  const el = $('gGoogle'); if (!el) return;
+  try {
+    await loadGsi();
+    google.accounts.id.initialize({ client_id: CFG.googleClientId, ux_mode: 'popup', auto_select: false, itp_support: true,
+      callback: async r => {
+        gmsg('Signing in…', true);
+        try {
+          const j = await idt('signInWithIdp', { postBody: 'id_token=' + encodeURIComponent(r.credential) + '&providerId=google.com', requestUri: location.origin, returnSecureToken: true, returnIdpCredential: true });
+          setSession(j.idToken, j.refreshToken, j.expiresIn); store.set('email', j.email || '');
+          gate();
+        } catch (e) { gmsg(e.message); }
+      } });
+    google.accounts.id.renderButton(el, { type: 'standard', theme: 'filled_black', size: 'large', text: 'continue_with', shape: 'pill', width: Math.min(320, el.clientWidth || 300) });
+  } catch (e) { el.innerHTML = `<span class="gmsg err">${escH(e.message)}</span>`; }
+}
+
 /* ---------- Sign-in gate ---------- */
 const PW_MIN = 10;
 function gmsg(t, ok) { const m = $('gmsg'); if (m) { m.textContent = t || ''; m.className = 'gmsg ' + (ok ? 'ok' : 'err'); } }
@@ -435,11 +461,11 @@ function view(name, msg) {
   const em = escH(AUTH.me && AUTH.me.email || store.get('email', ''));
   const V = {
     setup: `<p>The admin hasn't finished connecting WICKD to its server yet.</p>${demoBtn}`,
-    login: `<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
+    login: `${GOOGLE_ON ? '<div class="gsso" id="gGoogle"></div><div class="orline">or use email</div>' : ''}<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
       <label>Password</label><input id="gPw" type="password" autocomplete="current-password" required>
       <button class="go" id="gGo">Sign in</button></form>
       <div class="links"><button class="lnk" id="gToSignup">Create account</button><button class="lnk" id="gForgot">Forgot password?</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
-    signup: `<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
+    signup: `${GOOGLE_ON ? '<div class="gsso" id="gGoogle"></div><div class="orline">or make a password</div>' : ''}<form id="gForm" autocomplete="on"><label>Email</label><input id="gEmail" type="email" autocomplete="username" required value="${em}">
       <label>Password (${PW_MIN}+ characters)</label><input id="gPw" type="password" autocomplete="new-password" minlength="${PW_MIN}" required>
       <label>Password again</label><input id="gPw2" type="password" autocomplete="new-password" minlength="${PW_MIN}" required>
       <button class="go" id="gGo">Create account</button></form>
@@ -453,6 +479,7 @@ function view(name, msg) {
     error: `<p>Couldn't connect to the WICKD server.</p><button class="go" id="gCheck">Try again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
   };
   $('gView').innerHTML = V[name]; if (msg) gmsg(msg);
+  if (GOOGLE_ON && (name === 'login' || name === 'signup')) googleButton();
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
   on('gDemo', () => openApp(false));
   on('gToSignup', () => view('signup')); on('gToLogin', () => view('login'));

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://patient-pond-6d08.pmpakula.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://accounts.google.com/gsi/ https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://patient-pond-6d08.pmpakula.workers.dev https://fonts.googleapis.com https://fonts.gstatic.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; frame-src https://accounts.google.com/gsi/">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <meta name="theme-color" content="#0b0f14">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -129,6 +129,7 @@ body.locked{overflow:hidden}
 .gbox .links{display:flex;justify-content:space-between;margin-top:8px}
 .gbox p{color:var(--mut);font-size:14px;line-height:1.5;text-align:center}
 .gmsg{font-size:13.5px;margin-top:10px;text-align:center;min-height:18px}.gmsg.err{color:#fca5a5}.gmsg.ok{color:#86efac}
+.gsso{display:flex;justify-content:center;margin:4px 0 12px;min-height:44px}.orline{display:flex;align-items:center;gap:10px;color:var(--mut);font-size:12px;margin:2px 0 4px}.orline:before,.orline:after{content:'';flex:1;height:1px;background:var(--line)}
 .demo{width:100%;margin-top:12px;background:none;border:1px dashed var(--line);color:var(--mut);border-radius:10px;padding:10px;font:600 13px Inter;cursor:pointer}
 .urow{display:flex;align-items:center;gap:8px;padding:10px;border-radius:10px;background:var(--panel2);margin-bottom:8px;flex-wrap:wrap}
 .urow .em{flex:1;min-width:150px;font-weight:600;font-size:14px;word-break:break-all}.urow small{display:block;color:var(--mut);font-weight:500;font-size:11.5px}
