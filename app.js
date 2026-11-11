@@ -222,7 +222,7 @@ function renderBacktest() {
 /* ---------- Hot Today (day-trade scanner) ---------- */
 const DEFAULT_HOT = 'TSLA NVDA AMD PLTR SMCI COIN MSTR HOOD SOFI MARA RIVN META AMZN AAPL SPY QQQ';
 const INDEX_ETFS = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones'], ['IWM', 'Russell 2000']];
-let FAV = store.get('favs', []), MOVERS = null, curList = store.get('list', 'movers');
+let FAV = store.get('favs', []), curList = store.get('list', 'pop'); if (!['pop', 'fav', 'idx'].includes(curList)) curList = 'pop';
 $('hotList').value = store.get('hot', DEFAULT_HOT);
 const tickList = s => [...new Set(String(s).toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))];
 
@@ -253,35 +253,12 @@ async function loadStrip() {
 }
 $('mstrip').addEventListener('click', e => { const c = e.target.closest('[data-go]'); if (!c) return; $('intv').value = '1day'; showTab('an', true); load(c.dataset.go); });
 
-/* ---- list tabs: Top movers / Favorites / Popular / Indexes ---- */
-function demoMovers() {
-  const pick = (arr, sgn) => arr.map((s, i) => { const B = demo(s, '1day').B; return { symbol: s, price: B.at(-1).c, pct: sgn * (12 - i * 1.7) }; });
-  return { updated: 'demo data', gainers: pick(['SOFI', 'PLTR', 'HOOD', 'RIVN', 'MARA', 'COIN'], 1), losers: pick(['INTC', 'NKE', 'PFE', 'BA'], -1), active: pick(['NVDA', 'TSLA', 'AAPL', 'AMD'], 0.3) };
-}
-function moversAge(m) {
-  const d = String(m.updated || '').slice(0, 10);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return escH(m.updated || '');
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
-  const nice = new Date(d + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return d === today ? `<b style="color:#86efac">Today's movers</b> (as of ${escH(String(m.updated).slice(11, 16))} ET).`
-    : `<b style="color:#fcd34d">From the last close: ${nice}.</b> The free movers list updates once a day after the market closes; use it as this morning's watchlist.`;
-}
-const chips = arr => `<div class="lchips">${arr.map(x => `<button class="lchip" data-go="${escH(x.symbol)}">${escH(x.symbol)}${isFinite(x.pct) ? `<i class="${x.pct >= 0 ? 'up' : 'dn'}">${x.pct >= 0 ? '+' : ''}${fmt(x.pct, 1)}%</i>` : ''}</button>`).join('') || '<span class="note" style="margin:0">none right now</span>'}</div>`;
+/* ---- list tabs: Popular / Favorites / Indexes ---- */
 async function setList(l, keepPanelOnly) {
   curList = l; store.set('list', l);
   document.querySelectorAll('#ltabs [data-l]').forEach(b => b.classList.toggle('on', b.dataset.l === l));
   const P = $('lpanel');
-  if (l === 'movers') {
-    P.innerHTML = '<p class="note" style="margin:0"><span class="spin"></span> Loading today\'s top movers…</p>';
-    try {
-      MOVERS = await fetch('movers.json?t=' + Math.floor(Date.now() / 600000), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
-      if (!MOVERS || !Array.isArray(MOVERS.gainers)) MOVERS = state.live ? await api('/movers') : demoMovers();
-      const m = MOVERS;
-      P.innerHTML = `<div class="lgrp">Biggest gainers</div>${chips(m.gainers.slice(0, 10))}<div class="lgrp">Biggest losers</div>${chips(m.losers.slice(0, 6))}<div class="lgrp">Most traded</div>${chips(m.active.slice(0, 6))}
-        <div class="note" style="margin-top:4px">${moversAge(m)} Filtered: $3+, 500k+ shares, no warrants or units.</div>`;
-      if (!keepPanelOnly) $('hotList').value = [...new Set([...m.gainers.slice(0, 8), ...m.losers.slice(0, 4), ...m.active.slice(0, 4)].map(x => x.symbol))].join(' ');
-    } catch (e) { P.innerHTML = `<p class="note" style="margin:0;color:#fca5a5">${escH(e.message)}</p>`; }
-  } else if (l === 'fav') {
+  if (l === 'fav') {
     P.innerHTML = FAV.length ? `<div class="lchips">${FAV.map(s => `<button class="lchip" data-go="${escH(s)}">${escH(s)}<i data-unfav="${escH(s)}" style="color:var(--mut)">✕</i></button>`).join('')}</div>`
       : '<p class="note" style="margin:0">No favorites yet. Tap ☆ on any stock card or chart to add it.</p>';
     if (!keepPanelOnly) $('hotList').value = FAV.join(' ');
