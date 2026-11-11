@@ -46,7 +46,7 @@ async function api(path, opts = {}) {
   const t = await idToken();
   const r = await fetch(CFG.workerUrl.replace(/\/+$/, '') + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + t } });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const m = j.error && (j.error.message || j.error); throw Object.assign(new Error(typeof m === 'string' ? m : 'Server error ' + r.status), { status: r.status, body: j }); }
+  if (!r.ok) { const m = (j.error && (j.error.message || j.error)) || j.message; throw Object.assign(new Error(typeof m === 'string' ? (r.status === 429 ? 'Data limit: 8 lookups per minute on the free plan. Wait a minute.' : m) : 'Server error ' + r.status), { status: r.status, body: j }); }
   return j;
 }
 
@@ -317,7 +317,7 @@ function demoDay(sym) {
 }
 async function fetchBatch(syms) {
   const j = await api(`/td?symbol=${encodeURIComponent(syms.join(','))}&interval=5min&outputsize=400`);
-  if (j.status === 'error') throw new Error(j.message);
+  if (j.status === 'error') throw Object.assign(new Error(j.code === 429 ? 'Data limit: 8 lookups per minute on the free plan. Wait a minute.' : j.message), { status: j.code });
   const map = syms.length === 1 ? { [syms[0]]: j } : j, out = {};
   for (const sym of syms) {
     const d = map[sym]; if (!d || d.status === 'error' || !d.values) { out[sym] = { err: (d && d.message) || 'no data' }; continue; }
@@ -360,7 +360,6 @@ $('scanBtn').onclick = async () => {
   if (scanning) return; scanning = true;
   const syms = [...new Set($('hotList').value.toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))].slice(0, 40);
   if (curList === 'pop') store.set('hot', syms.join(' '));
-  loadStrip();
   const acct = +$('acct').value || 0;
   hotRes = []; renderHot(); $('prog').style.display = 'block'; $('scanBtn').innerHTML = '<span class="spin"></span> Scanning…';
   const setProg = (d) => $('prog').firstElementChild.style.width = (d / syms.length * 100) + '%';
@@ -370,7 +369,12 @@ $('scanBtn').onclick = async () => {
     let data = null;
     if (live) {
       try { data = await fetchBatch(chunk); }
-      catch (e) { data = Object.fromEntries(chunk.map(s => [s, { err: e instanceof TypeError ? 'Can\'t reach the WICKD server' : e.message }])); }
+      catch (e) {
+        if (e.status === 429) {
+          for (let w = 62; w > 0; w--) { $('scanBtn').textContent = `Data limit hit, retrying in ${w}s…`; await new Promise(r => setTimeout(r, 1000)); }
+          try { data = await fetchBatch(chunk); e = null; } catch (e2) { e = e2; }
+        }
+        if (e) data = Object.fromEntries(chunk.map(s => [s, { err: e instanceof TypeError ? 'Can\'t reach the WICKD server' : e.message }])); }
     }
     for (const sym of chunk) {
       const d = data ? data[sym] : { B: demoDay(sym) };
@@ -573,6 +577,7 @@ function openApp(live) {
   else $('scanNote').textContent = 'Scans 5-minute charts, 8 tickers per minute (data-plan limit). Paste today\'s premarket gainers to scan them too.';
   if ($('vAn').classList.contains('on')) load(state.sym);
   loadFavs().then(() => { paintStars(); setList(curList); loadStrip(); });
+  clearInterval(window.__stripT); window.__stripT = setInterval(() => { if (!scanning && !document.hidden) loadStrip(); }, 15 * 60e3);
 }
 async function gate() {
   if (!CONFIGURED) return view('setup');
