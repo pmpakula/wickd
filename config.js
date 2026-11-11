@@ -2,5 +2,5 @@
 window.WICKD_CONFIG = {
   firebaseApiKey: 'AIzaSyBrxuXQbDzyEEyZAfi874w98ShJ37GQts4',
   workerUrl: 'https://patient-pond-6d08.pmpakula.workers.dev',
-  googleClientId: 'PASTE_GOOGLE_WEB_CLIENT_ID', // turns on "Continue with Google"
+  googleClientId: '719857918400-suu4bfgte9hjc6cg0kjjqgrqonajt2e4.apps.googleusercontent.com', // turns on "Continue with Google"
 };
