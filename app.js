@@ -1,4 +1,6 @@
 (() => {
+/* refuse to run inside another site's frame (clickjacking) */
+if (window.top !== window.self && /\.github\.io$/.test(location.hostname)) { document.documentElement.innerHTML = ''; return; }
 const $ = id => document.getElementById(id);
 const escH = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TICK = /^[A-Z0-9][A-Z0-9.\/:-]{0,14}$/;
