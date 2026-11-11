@@ -3,6 +3,13 @@
 if (window.top !== window.self && /\.github\.io$/.test(location.hostname)) { document.documentElement.innerHTML = ''; return; }
 const $ = id => document.getElementById(id);
 const escH = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* common company names / typos -> tickers */
+const ALIAS = { NVIDIA: 'NVDA', NVDIA: 'NVDA', NVIDA: 'NVDA', APPLE: 'AAPL', TESLA: 'TSLA', AMAZON: 'AMZN', GOOGLE: 'GOOGL', ALPHABET: 'GOOGL',
+  MICROSOFT: 'MSFT', FACEBOOK: 'META', NETFLIX: 'NFLX', PALANTIR: 'PLTR', COINBASE: 'COIN', ROBINHOOD: 'HOOD', SOFI: 'SOFI', INTEL: 'INTC',
+  DISNEY: 'DIS', WALMART: 'WMT', NIKE: 'NKE', BOEING: 'BA', FORD: 'F', UBER: 'UBER', AIRBNB: 'ABNB', PAYPAL: 'PYPL', SHOPIFY: 'SHOP',
+  BROADCOM: 'AVGO', ORACLE: 'ORCL', SALESFORCE: 'CRM', STARBUCKS: 'SBUX', COSTCO: 'COST', MICROSTRATEGY: 'MSTR', RIVIAN: 'RIVN',
+  BITCOIN: 'BTC/USD', ETHEREUM: 'ETH/USD', SP500: 'SPY', 'S&P': 'SPY', NASDAQ: 'QQQ', DOW: 'DIA' };
+const fixTicker = s => ALIAS[s] || s;
 const TICK = /^[A-Z0-9][A-Z0-9.\/:-]{0,14}$/;
 const store = {
   get(k, d) { try { const v = localStorage.getItem('sb_' + k); return v === null ? d : JSON.parse(v); } catch { return d; } },
@@ -46,7 +53,7 @@ async function api(path, opts = {}) {
   const t = await idToken();
   const r = await fetch(CFG.workerUrl.replace(/\/+$/, '') + path, { ...opts, headers: { ...(opts.headers || {}), Authorization: 'Bearer ' + t } });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const m = (j.error && (j.error.message || j.error)) || j.message; throw Object.assign(new Error(typeof m === 'string' ? (r.status === 429 ? 'Data limit: 8 lookups per minute on the free plan. Wait a minute.' : m) : 'Server error ' + r.status), { status: r.status, body: j }); }
+  if (!r.ok) { const m = (j.error && (j.error.message || j.error)) || j.message; throw Object.assign(new Error(typeof m === 'string' ? (r.status === 429 ? 'Data limit: 8 lookups per minute on the free plan. Wait a minute.' : r.status === 404 ? 'Ticker not found. Check the spelling (NVIDIA is NVDA).' : m) : (r.status === 404 ? 'Ticker not found. Check the spelling (NVIDIA is NVDA).' : 'Server error ' + r.status)), { status: r.status, body: j }); }
   return j;
 }
 
@@ -358,7 +365,8 @@ $('hlist').addEventListener('click', e => { const fv = e.target.closest('[data-f
 $('acct').addEventListener('change', () => { store.set('acct', +$('acct').value || 0); });
 $('scanBtn').onclick = async () => {
   if (scanning) return; scanning = true;
-  const syms = [...new Set($('hotList').value.toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))].slice(0, 40);
+  const syms = [...new Set($('hotList').value.toUpperCase().split(/[\s,]+/).map(fixTicker).filter(x => TICK.test(x)))].slice(0, 40);
+  $('hotList').value = syms.join(' ');
   if (curList === 'pop') store.set('hot', syms.join(' '));
   const acct = +$('acct').value || 0;
   hotRes = []; renderHot(); $('prog').style.display = 'block'; $('scanBtn').innerHTML = '<span class="spin"></span> Scanning…';
@@ -389,7 +397,8 @@ $('scanBtn').onclick = async () => {
     }
   }
   if (!live) $('scanNote').innerHTML = '<b style="color:#fcd34d">Demo mode: simulated prices.</b> Sign in with an approved account for real prices.';
-  scanning = false; $('scanBtn').textContent = 'Scan again'; setTimeout(() => $('prog').style.display = 'none', 800);
+  scanning = false; $('scanBtn').textContent = 'Scan again';
+  if (!$('mstrip').textContent.trim() || $('mstrip').textContent.includes('—')) loadStrip(); setTimeout(() => $('prog').style.display = 'none', 800);
 };
 function showTab(t, noLoad) {
   $('tabHot').classList.toggle('on', t === 'hot'); $('tabAn').classList.toggle('on', t === 'an');
@@ -630,7 +639,7 @@ $('adminList').addEventListener('click', async e => {
 let loading = false;
 async function load(sym) {
   if (loading) return; loading = true;
-  sym = (sym || $('sym').value || state.sym).trim().toUpperCase();
+  sym = fixTicker((sym || $('sym').value || state.sym).trim().toUpperCase());
   if (!TICK.test(sym)) { banner('Invalid ticker. Use letters/numbers, e.g. AAPL or BTC/USD.', true); loading = false; return; }
   const intv = $('intv').value;
   state.sym = sym; state.intv = intv; $('sym').value = sym;
@@ -690,7 +699,7 @@ function renderKeyHints() {
 async function saveKeys(body) {
   $('keysMsg').textContent = 'Saving…';
   try { const r = await api('/keys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    AUTH.me.keys = r.keys; renderKeyHints(); $('tdIn').value = ''; $('gemIn').value = ''; $('keysMsg').innerHTML = '<span style="color:#86efac">Saved ✓</span>';
+    AUTH.me.keys = r.keys; renderKeyHints(); if (r.keys.td) loadStrip(); $('tdIn').value = ''; $('gemIn').value = ''; $('keysMsg').innerHTML = '<span style="color:#86efac">Saved ✓</span>';
     hotRes = []; renderHot(); state.B = null;
   } catch (e) { $('keysMsg').innerHTML = `<span style="color:#fca5a5">${escH(e.message)}</span>`; }
 }
