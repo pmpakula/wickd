@@ -611,10 +611,14 @@ async function gate() {
 }
 
 /* ---------- Admin: approve / revoke users ---------- */
+const recentSet = {};   // email -> { status, until } — covers storage delay after Approve/Revoke
 async function loadUsers() {
   $('adminList').innerHTML = '<p class="note"><span class="spin"></span> Loading…</p>';
   try {
-    const { users } = await api('/admin/users');
+    let { users } = await api('/admin/users');
+    const now = Date.now();
+    users = users.map(u => recentSet[u.email] && recentSet[u.email].until > now ? { ...u, status: recentSet[u.email].status, updated: now } : u)
+      .filter(u => !(recentSet[u.email] && recentSet[u.email].until > now && recentSet[u.email].status === 'deleted'));
     const when = t => t ? new Date(t).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
     $('adminList').innerHTML = users.length ? users.map(u => `<div class="urow" data-em="${escH(u.email)}">
       <div class="em">${escH(u.email)}<small>${u.status === 'pending' ? 'asked ' + when(u.requested) : 'updated ' + when(u.updated)}</small></div>
@@ -631,7 +635,15 @@ $('adminList').addEventListener('click', async e => {
   const email = b.closest('[data-em]').dataset.em, action = b.dataset.act;
   if (action === 'delete' && b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'Tap again to delete'; return; }
   b.disabled = true;
-  try { await api('/admin/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, action }) }); loadUsers(); }
+  try {
+    await api('/admin/set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, action }) });
+    recentSet[email] = { status: action === 'delete' ? 'deleted' : action, until: Date.now() + 120000 };
+    await loadUsers();
+    const row = [...document.querySelectorAll('#adminList [data-em]')].find(r => r.dataset.em === email);
+    const done = { approved: '✓ Approved. They can tap "Check again" now (may take up to a minute).', revoked: '✓ Access revoked (within about a minute).', delete: '✓ Deleted.' }[action];
+    const msg = document.createElement('div'); msg.className = 'note'; msg.style.cssText = 'margin:-4px 0 8px;color:#86efac';
+    msg.textContent = done; if (row) row.after(msg); else $('adminList').prepend(msg);
+  }
   catch (err) { b.disabled = false; b.textContent = err.message; }
 });
 
