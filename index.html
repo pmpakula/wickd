@@ -135,6 +135,18 @@ body.locked{overflow:hidden}
 .urow .em{flex:1;min-width:150px;font-weight:600;font-size:14px;word-break:break-all}.urow small{display:block;color:var(--mut);font-weight:500;font-size:11.5px}
 .pill{font:700 11px Inter;padding:4px 8px;border-radius:99px;text-transform:uppercase}.pill.pending{background:#422006;color:#fcd34d}.pill.approved{background:#052e16;color:#86efac}.pill.revoked{background:#450a0a;color:#fca5a5}
 .urow button{font:600 12.5px Inter;padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--txt);cursor:pointer}
+.mstrip{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:10px}
+@media(max-width:520px){.mstrip{grid-template-columns:repeat(2,1fr)}}
+.mcell{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 11px;cursor:pointer}
+.mcell small{display:block;color:var(--mut);font-size:11px;font-weight:600}.mcell b{font:700 15px "JetBrains Mono"}.mcell span{font:700 12.5px "JetBrains Mono";margin-left:6px}
+.ltabs{display:flex;gap:6px;overflow-x:auto;margin:12px 0 8px;scrollbar-width:none}.ltabs::-webkit-scrollbar{display:none}
+.ltabs button{flex:none;background:var(--panel2);border:1px solid var(--line);color:var(--mut);border-radius:99px;padding:7px 12px;font:700 13px Inter;cursor:pointer}
+.ltabs button.on{color:var(--txt);border-color:var(--blue);background:rgba(59,130,246,.15)}
+.lgrp{margin:6px 0 2px;font-size:11px;font-weight:700;color:var(--mut);text-transform:uppercase;letter-spacing:.06em}
+.lchips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
+.lchip{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:5px 10px;font:600 12.5px Inter;color:var(--txt);cursor:pointer}
+.lchip i{font-style:normal;font-family:"JetBrains Mono";margin-left:5px}
+.star{background:none;border:0;color:#fbbf24;font-size:19px;line-height:1;cursor:pointer;padding:0 2px;vertical-align:-1px}
 footer{color:var(--mut);font-size:12px;line-height:1.5;padding:18px 4px 30px;text-align:center}
 footer a{color:#93c5fd}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:50}
@@ -189,8 +201,11 @@ footer a{color:#93c5fd}
   <div class="tabs"><button id="tabHot" class="on">🔥 Hot Today</button><button id="tabAn">📈 Analyze</button></div>
 
   <div class="view on" id="vHot">
+    <div class="mstrip" id="mstrip"></div>
     <div class="card">
       <div class="clock"><div><span class="dot" id="mDot"></span><b id="mState">—</b></div><span class="mono" id="mTime" style="color:var(--mut)"></span></div>
+      <div class="ltabs" id="ltabs"><button data-l="movers">🔥 Top movers</button><button data-l="fav">⭐ Favorites</button><button data-l="pop">👥 Popular</button><button data-l="idx">📊 Indexes</button></div>
+      <div id="lpanel"></div>
       <div class="hotcfg">
         <textarea id="hotList" spellcheck="false" autocapitalize="characters"></textarea>
         <div class="r">Account size $<input id="acct" inputmode="numeric" placeholder="optional"> <span>→ share size at 1% risk per trade</span></div>
@@ -217,7 +232,7 @@ footer a{color:#93c5fd}
 
   <div class="grid">
     <div class="card">
-      <h3><span id="symLbl">—</span><span id="srcLbl" class="mono" style="text-transform:none;letter-spacing:0"></span></h3>
+      <h3><span><button class="star" id="anStar" title="Favorite">☆</button> <span id="symLbl">—</span></span><span id="srcLbl" class="mono" style="text-transform:none;letter-spacing:0"></span></h3>
       <div class="sig">
         <div class="badge hold" id="badge">—</div>
         <div><div class="px mono" id="px">—</div><div class="chg mono" id="chg"></div></div>

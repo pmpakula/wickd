@@ -142,7 +142,7 @@ function render() {
   const intraday = !['1day', '1week'].includes(state.intv);
   const { score, reasons } = Engine.scoreAt(ind, i), v = Engine.verdict(score);
   const A = ind.atr[i], lv = Engine.levels(B, A);
-  $('symLbl').textContent = `${state.sym} · ${$('intv').selectedOptions[0].text}`;
+  $('symLbl').textContent = `${state.sym} · ${$('intv').selectedOptions[0].text}`; paintStars();
   $('srcLbl').textContent = state.src;
   $('badge').className = 'badge ' + v.cls; $('badge').textContent = v.label;
   $('px').textContent = money(c);
@@ -221,7 +221,74 @@ function renderBacktest() {
 
 /* ---------- Hot Today (day-trade scanner) ---------- */
 const DEFAULT_HOT = 'TSLA NVDA AMD PLTR SMCI COIN MSTR HOOD SOFI MARA RIVN META AMZN AAPL SPY QQQ';
+const INDEX_ETFS = [['SPY', 'S&P 500'], ['QQQ', 'Nasdaq 100'], ['DIA', 'Dow Jones'], ['IWM', 'Russell 2000']];
+let FAV = store.get('favs', []), MOVERS = null, curList = store.get('list', 'movers');
 $('hotList').value = store.get('hot', DEFAULT_HOT);
+const tickList = s => [...new Set(String(s).toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))];
+
+/* ---- favorites (saved to the account when signed in; this device in demo) ---- */
+async function loadFavs() {
+  if (!state.live) { FAV = store.get('favs', []); return; }
+  try { FAV = (await api('/prefs')).favorites || []; } catch { FAV = []; }
+}
+let favTimer = null;
+function toggleFav(sym) {
+  FAV = FAV.includes(sym) ? FAV.filter(x => x !== sym) : [...FAV, sym].slice(0, 50);
+  store.set('favs', FAV); paintStars(); if (curList === 'fav') setList('fav', true);
+  if (state.live) { clearTimeout(favTimer); favTimer = setTimeout(() => api('/prefs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ favorites: FAV }) }).catch(() => {}), 600); }
+}
+function paintStars() {
+  document.querySelectorAll('[data-fav]').forEach(b => { const on = FAV.includes(b.dataset.fav); b.textContent = on ? '★' : '☆'; b.title = on ? 'Remove from favorites' : 'Add to favorites'; });
+  if ($('anStar')) { const on = FAV.includes(state.sym); $('anStar').textContent = on ? '★' : '☆'; }
+}
+$('anStar').onclick = () => { if (state.sym) toggleFav(state.sym); };
+
+/* ---- market strip: ETFs that track the big indexes ---- */
+async function loadStrip() {
+  let q = {};
+  if (state.live) { try { q = await api('/quote?symbol=' + INDEX_ETFS.map(x => x[0]).join(',')); } catch (e) { $('mstrip').innerHTML = ''; return; } }
+  else INDEX_ETFS.forEach(([s]) => { const B = demo(s, '1day').B, c = B.at(-1).c, p = B.at(-2).c; q[s] = { price: c, pct: (c / p - 1) * 100 }; });
+  $('mstrip').innerHTML = INDEX_ETFS.map(([s, n]) => { const x = q[s] || {}; const ok = isFinite(x.pct);
+    return `<div class="mcell" data-go="${s}"><small>${n} · ${s}</small><b>${ok ? fmt(x.price) : '—'}</b><span class="${x.pct >= 0 ? 'up' : 'dn'}">${ok ? (x.pct >= 0 ? '+' : '') + fmt(x.pct) + '%' : ''}</span></div>`; }).join('');
+}
+$('mstrip').addEventListener('click', e => { const c = e.target.closest('[data-go]'); if (!c) return; $('intv').value = '1day'; showTab('an', true); load(c.dataset.go); });
+
+/* ---- list tabs: Top movers / Favorites / Popular / Indexes ---- */
+function demoMovers() {
+  const pick = (arr, sgn) => arr.map((s, i) => { const B = demo(s, '1day').B; return { symbol: s, price: B.at(-1).c, pct: sgn * (12 - i * 1.7) }; });
+  return { updated: 'demo data', gainers: pick(['SOFI', 'PLTR', 'HOOD', 'RIVN', 'MARA', 'COIN'], 1), losers: pick(['INTC', 'NKE', 'PFE', 'BA'], -1), active: pick(['NVDA', 'TSLA', 'AAPL', 'AMD'], 0.3) };
+}
+const chips = arr => `<div class="lchips">${arr.map(x => `<button class="lchip" data-go="${escH(x.symbol)}">${escH(x.symbol)}${isFinite(x.pct) ? `<i class="${x.pct >= 0 ? 'up' : 'dn'}">${x.pct >= 0 ? '+' : ''}${fmt(x.pct, 1)}%</i>` : ''}</button>`).join('') || '<span class="note" style="margin:0">none right now</span>'}</div>`;
+async function setList(l, keepPanelOnly) {
+  curList = l; store.set('list', l);
+  document.querySelectorAll('#ltabs [data-l]').forEach(b => b.classList.toggle('on', b.dataset.l === l));
+  const P = $('lpanel');
+  if (l === 'movers') {
+    P.innerHTML = '<p class="note" style="margin:0"><span class="spin"></span> Loading today\'s top movers…</p>';
+    try {
+      MOVERS = state.live ? await api('/movers') : demoMovers();
+      const m = MOVERS;
+      P.innerHTML = `<div class="lgrp">Biggest gainers</div>${chips(m.gainers.slice(0, 10))}<div class="lgrp">Biggest losers</div>${chips(m.losers.slice(0, 6))}<div class="lgrp">Most traded</div>${chips(m.active.slice(0, 6))}
+        <div class="note" style="margin-top:4px">Updated ${escH(m.updated || '')}${m.stale ? ' (older copy)' : ''}. Filtered: $3+, 500k+ shares. Free data can lag; check the time.</div>`;
+      if (!keepPanelOnly) $('hotList').value = [...new Set([...m.gainers.slice(0, 8), ...m.losers.slice(0, 4), ...m.active.slice(0, 4)].map(x => x.symbol))].join(' ');
+    } catch (e) { P.innerHTML = `<p class="note" style="margin:0;color:#fca5a5">${escH(e.message)}</p>`; }
+  } else if (l === 'fav') {
+    P.innerHTML = FAV.length ? `<div class="lchips">${FAV.map(s => `<button class="lchip" data-go="${escH(s)}">${escH(s)}<i data-unfav="${escH(s)}" style="color:var(--mut)">✕</i></button>`).join('')}</div>`
+      : '<p class="note" style="margin:0">No favorites yet. Tap ☆ on any stock card or chart to add it.</p>';
+    if (!keepPanelOnly) $('hotList').value = FAV.join(' ');
+  } else if (l === 'pop') {
+    P.innerHTML = '<p class="note" style="margin:0">Popular, heavily traded stocks. Edit the list below; it\'s saved on this device.</p>';
+    if (!keepPanelOnly) $('hotList').value = store.get('hot', DEFAULT_HOT);
+  } else {
+    P.innerHTML = '<p class="note" style="margin:0">ETFs that track the big indexes: SPY (S&P 500), QQQ (Nasdaq 100), DIA (Dow Jones), IWM (Russell 2000).</p>';
+    if (!keepPanelOnly) $('hotList').value = INDEX_ETFS.map(x => x[0]).join(' ');
+  }
+}
+$('ltabs').addEventListener('click', e => { const b = e.target.closest('[data-l]'); if (b) setList(b.dataset.l); });
+$('lpanel').addEventListener('click', e => {
+  const u = e.target.closest('[data-unfav]'); if (u) { e.stopPropagation(); toggleFav(u.dataset.unfav); return; }
+  const c = e.target.closest('[data-go]'); if (!c) return; $('intv').value = '5min'; showTab('an', true); load(c.dataset.go);
+});
 $('acct').value = store.get('acct', '') || '';
 function etNow() {
   const p = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, weekday: 'short', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date());
@@ -296,17 +363,18 @@ function renderHot() {
       <span style="font-size:11.5px">Estimate only — check the real bid/ask. Wide spreads eat day-trade profits.</span></div>` : '';
     if (p.entry) notes.push(`Sell by 3:50 PM ET no matter what.${p.shares ? ` Size: ~${p.shares} shares (1% risk).` : ''}`);
     return `<div class="hc" data-s="${sym}">
-      <div class="top"><span class="sy">${sym} <span class="mono" style="font-size:15px">${money(p.last)}</span></span><span class="r"><button class="aibtn sm" data-ai="${sym}">✨ AI</button><span class="st ${p.cls}">${p.status}</span></span></div>
+      <div class="top"><span class="sy">${sym} <span class="mono" style="font-size:15px">${money(p.last)}</span></span><span class="r"><button class="star" data-fav="${escH(sym)}">${FAV.includes(sym) ? '★' : '☆'}</button><button class="aibtn sm" data-ai="${sym}">✨ AI</button><span class="st ${p.cls}">${p.status}</span></span></div>
       <div class="meta"><span class="${p.chg >= 0 ? 'up' : 'dn'}" style="font-weight:700">${p.chg >= 0 ? '+' : ''}${fmt(p.chg * 100)}%</span> today · gap ${p.gap >= 0 ? '+' : ''}${fmt(p.gap * 100, 1)}% · rel vol ${p.rvol ? p.rvol.toFixed(1) + '×' : '—'} · VWAP ${fmt(p.vwap)} · RSI ${p.r ? p.r.toFixed(0) : '—'}</div>
       ${lv}${optHtml}${notes.length ? `<ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}</div>`;
   }).join('');
 }
-$('hlist').addEventListener('click', e => { const ai = e.target.closest('[data-ai]'); if (ai) { e.stopPropagation(); askHot(ai.dataset.ai); return; } const c = e.target.closest('[data-s]'); if (!c) return; $('intv').value = '5min'; showTab('an', true); load(c.dataset.s); });
+$('hlist').addEventListener('click', e => { const fv = e.target.closest('[data-fav]'); if (fv) { e.stopPropagation(); toggleFav(fv.dataset.fav); return; } const ai = e.target.closest('[data-ai]'); if (ai) { e.stopPropagation(); askHot(ai.dataset.ai); return; } const c = e.target.closest('[data-s]'); if (!c) return; $('intv').value = '5min'; showTab('an', true); load(c.dataset.s); });
 $('acct').addEventListener('change', () => { store.set('acct', +$('acct').value || 0); });
 $('scanBtn').onclick = async () => {
   if (scanning) return; scanning = true;
   const syms = [...new Set($('hotList').value.toUpperCase().split(/[\s,]+/).filter(x => TICK.test(x)))].slice(0, 40);
-  store.set('hot', syms.join(' '));
+  if (curList === 'pop') store.set('hot', syms.join(' '));
+  loadStrip();
   const acct = +$('acct').value || 0;
   hotRes = []; renderHot(); $('prog').style.display = 'block'; $('scanBtn').innerHTML = '<span class="spin"></span> Scanning…';
   const setProg = (d) => $('prog').firstElementChild.style.width = (d / syms.length * 100) + '%';
@@ -518,6 +586,7 @@ function openApp(live) {
   if (!live) $('scanNote').innerHTML = '<b style="color:#fcd34d">Demo mode: simulated prices.</b> Sign in with an approved account for real prices.';
   else $('scanNote').textContent = 'Scans 5-minute charts, 8 tickers per minute (data-plan limit). Paste today\'s premarket gainers to scan them too.';
   if ($('vAn').classList.contains('on')) load(state.sym);
+  loadFavs().then(() => { paintStars(); setList(curList); loadStrip(); });
 }
 async function gate() {
   if (!CONFIGURED) return view('setup');
