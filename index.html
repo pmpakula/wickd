@@ -98,6 +98,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:6px
 .rule{font-size:12.5px;line-height:1.5;color:var(--mut);background:var(--panel2);border-radius:10px;padding:10px 12px;margin-top:10px}
 .rule b{color:var(--txt)}
 .aibtn{background:linear-gradient(135deg,#4285f4,#9b72cb 55%,#d96570);color:#fff;border:0;border-radius:10px;padding:9px 14px;font:700 13.5px Inter;cursor:pointer}
+.noai .aibtn,.noai #aiSheet{display:none!important}
+.iconbtn.ai-on{border-color:#9b72cb;color:#e9d5ff;background:rgba(155,114,203,.15)}
 .aibtn.sm{padding:6px 10px;font-size:12px;border-radius:8px}
 .sheet{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;z-index:60;align-items:flex-end;justify-content:center}
 .sheet.on{display:flex}
@@ -156,7 +158,8 @@ footer a{color:#93c5fd}
   <path fill="#fff4c2" d="M372 112c6 10 16 18 16 32a16 16 0 0 1-32 0c0-10 8-18 16-32z"/>
 </svg><span>WICK<span style="color:#3ee887">D</span></span></div>
     <div style="display:flex;gap:6px">
-      <button class="iconbtn" id="autoBtn" title="Auto-refresh every 2 min">⟳ Auto: off</button>
+      <button class="iconbtn" id="aiToggle" title="Turn AI features on/off">✨ AI</button>
+      <button class="iconbtn" id="autoBtn" title="Auto-refresh every 2 min">⟳ Off</button>
       <button class="iconbtn" id="setBtn">⚙ Data</button>
     </div>
   </header>
@@ -175,7 +178,7 @@ footer a{color:#93c5fd}
       <div class="note" id="scanNote">Scans 5-minute charts. The free data plan allows 8 tickers per minute, so 16 tickers ≈ 1 minute. Paste today's premarket gainers from any movers page to scan them too.</div>
     </div>
     <div class="hlist" id="hlist"></div>
-    <div class="rule"><b>Selling rules (every trade):</b> sell half at <b>T1</b> and move your stop to your entry price · sell the rest at <b>T2</b> · exit immediately if <b>STOP</b> hits · <b>be out of everything by 3:50 PM ET</b>, win or lose — no overnight holds. Shorts: short the stock, or buy a put expiring this week.</div>
+    <div class="rule"><b>Selling rules (every trade):</b> sell half at <b>T1</b> and move your stop to your entry price · sell the rest at <b>T2</b> · exit immediately if <b>STOP</b> hits · <b>be out of everything by 3:50 PM ET</b>, win or lose — no overnight holds. Can't short? Use the <b>PUT</b> shown on short setups (CALL on buys). Options follow the same T1/T2/stop/3:50 rules.</div>
   </div>
 
   <div class="view" id="vAn">
@@ -255,6 +258,7 @@ footer a{color:#93c5fd}
   <p>Live prices come from Twelve Data. Get a free key (800 calls/day, ~1 call per analysis) at <a href="https://twelvedata.com/register" target="_blank" rel="noopener" style="color:#93c5fd">twelvedata.com/register</a>, then paste it here. It's stored only in this browser. Leave blank for demo data.</p>
   <label>Twelve Data API key</label>
   <input id="keyIn" placeholder="paste key" autocomplete="off" spellcheck="false">
+  <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:var(--txt);margin-bottom:10px"><input type="checkbox" id="aiOnIn" style="width:auto;margin:0"> <b>AI features on</b> (✨ buttons powered by Google Gemini)</label>
   <label>Google Gemini API key (for ✨ Ask AI)</label>
   <input id="gemIn" placeholder="from aistudio.google.com/apikey" autocomplete="off" spellcheck="false">
   <label>Gemini model</label>
@@ -591,7 +595,22 @@ const Engine = (() => {
     return { side, status, cls, entry, stop, t1, t2, notes, last, chg, gap, rvol, vwap, orH, orL, pdh, pdl, prevClose, r, e9, e20, a5, hot, shares, orDone, nowM };
   }
 
-  return { dayPlan, compute, scoreAt, verdict, backtest, levels, histVol, bs, optionsPlan, isNum };
+
+  /* ---------- Option idea for a day trade ---------- */
+  function dayOption(p, closes5m, dte) {
+    if (!p.entry || !p.side) return null;
+    const type = p.side > 0 ? 'call' : 'put', r = 0.04, S = p.last;
+    const sig = Math.min(Math.max(histVol(closes5m, 78, 252 * 78) || 0.4, 0.15), 2.5);
+    const inc = strikeInc(S); let best = null;
+    for (let K = roundTo(S * 0.85, inc); K <= S * 1.15; K += inc) {
+      const g = bs(S, K, dte / 365, r, sig, type), d = Math.abs(Math.abs(g.delta) - 0.5);
+      if (!best || d < best.d) best = { K: +K.toFixed(2), d, g };
+    }
+    const T2 = Math.max(dte - 0.25, 0.1) / 365, val = px => bs(px, best.K, T2, r, sig, type).price;
+    return { type, K: best.K, dte, prem: best.g.price, delta: best.g.delta, sig, atEntry: val(p.entry), atT1: val(p.t1), atT2: val(p.t2), atStop: val(p.stop) };
+  }
+
+  return { dayOption, dayPlan, compute, scoreAt, verdict, backtest, levels, histVol, bs, optionsPlan, isNum };
 })();
 if (typeof module !== 'undefined') module.exports = Engine;
 
@@ -836,6 +855,12 @@ async function fetchBatch(syms, key) {
   return out;
 }
 let hotRes = [], scanning = false;
+function weeklyExp() {
+  const now = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  let d = (5 - now.getDay() + 7) % 7; if (d < 2) d += 7;
+  const ex = new Date(now); ex.setDate(now.getDate() + d);
+  return { dte: d, label: ex.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) };
+}
 function renderHot() {
   const rows = hotRes.slice().sort((a, b) => (b.p.err ? -1 : b.p.hot) - (a.p.err ? -1 : a.p.hot));
   $('hlist').innerHTML = rows.map(({ sym, p }) => {
@@ -846,11 +871,16 @@ function renderHot() {
         <div><small>SELL T1</small><b class="up">${fmt(p.t1)}</b></div>
         <div><small>SELL T2</small><b class="up">${fmt(p.t2)}</b></div></div>` : '';
     const notes = [...p.notes];
+    const o = p.opt, pc = (a) => `${money(a)} <span class="${a >= o.atEntry ? 'up' : 'dn'}">(${a >= o.atEntry ? '+' : ''}${fmt((a / o.atEntry - 1) * 100, 0)}%)</span>`;
+    const optHtml = o ? `<div class="rule" style="margin-top:9px"><b style="color:${o.type === 'call' ? 'var(--green)' : 'var(--red)'}">OR BUY $${fmt(o.K, o.K % 1 ? 1 : 0)} ${o.type.toUpperCase()} · exp ${o.exp}</b><br>
+      Est. ~${money(o.atEntry)}/sh (${money(o.atEntry * 100)}/contract) when stock hits ${fmt(p.entry)} · Δ ${fmt(o.delta)}<br>
+      Sell T1 ≈ ${pc(o.atT1)} · T2 ≈ ${pc(o.atT2)} · Stop ≈ ${pc(o.atStop)}<br>
+      <span style="font-size:11.5px">Estimate only — check the real bid/ask. Wide spreads eat day-trade profits.</span></div>` : '';
     if (p.entry) notes.push(`Sell by 3:50 PM ET no matter what.${p.shares ? ` Size: ~${p.shares} shares (1% risk).` : ''}`);
     return `<div class="hc" data-s="${sym}">
       <div class="top"><span class="sy">${sym} <span class="mono" style="font-size:15px">${money(p.last)}</span></span><span class="r"><button class="aibtn sm" data-ai="${sym}">✨ AI</button><span class="st ${p.cls}">${p.status}</span></span></div>
       <div class="meta"><span class="${p.chg >= 0 ? 'up' : 'dn'}" style="font-weight:700">${p.chg >= 0 ? '+' : ''}${fmt(p.chg * 100)}%</span> today · gap ${p.gap >= 0 ? '+' : ''}${fmt(p.gap * 100, 1)}% · rel vol ${p.rvol ? p.rvol.toFixed(1) + '×' : '—'} · VWAP ${fmt(p.vwap)} · RSI ${p.r ? p.r.toFixed(0) : '—'}</div>
-      ${lv}${notes.length ? `<ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}</div>`;
+      ${lv}${optHtml}${notes.length ? `<ul>${notes.map(n => `<li>${n}</li>`).join('')}</ul>` : ''}</div>`;
   }).join('');
 }
 $('hlist').addEventListener('click', e => { const ai = e.target.closest('[data-ai]'); if (ai) { e.stopPropagation(); askHot(ai.dataset.ai); return; } const c = e.target.closest('[data-s]'); if (!c) return; $('intv').value = '5min'; showTab('an', true); load(c.dataset.s); });
@@ -872,7 +902,9 @@ $('scanBtn').onclick = async () => {
     }
     for (const sym of chunk) {
       const d = data ? data[sym] : { B: demoDay(sym) };
-      hotRes.push({ sym, p: d.err ? { err: d.err } : Engine.dayPlan(d.B, acct) });
+      let pl = d.err ? { err: d.err } : Engine.dayPlan(d.B, acct);
+      if (!pl.err) { const ex = weeklyExp(), o = Engine.dayOption(pl, d.B.map(b => b.c), ex.dte); if (o) { o.exp = ex.label; pl.opt = o; } }
+      hotRes.push({ sym, p: pl });
       done++; setProg(done);
     }
     renderHot();
@@ -965,9 +997,16 @@ function askHot(sym) {
   const h = hotRes.find(x => x.sym === sym); if (!h || h.p.err) return;
   const p = h.p, ctx = { sym, status: p.status, last: p.last, changeTodayPct: +(p.chg * 100).toFixed(2), gapPct: +(p.gap * 100).toFixed(2), relVol: p.rvol && +p.rvol.toFixed(2), vwap: +p.vwap.toFixed(2),
     openingRange: [+p.orL.toFixed(2), +p.orH.toFixed(2)], prevDay: { high: p.pdh, low: p.pdl, close: p.prevClose }, rsi5m: p.r && +p.r.toFixed(0),
-    plan: p.entry ? { side: p.side > 0 ? 'long' : 'short', entry: +p.entry.toFixed(2), stop: +p.stop.toFixed(2), t1: +p.t1.toFixed(2), t2: +p.t2.toFixed(2), exitBy: '3:50 PM ET' } : null, appNotes: p.notes };
+    plan: p.entry ? { side: p.side > 0 ? 'long' : 'short', entry: +p.entry.toFixed(2), stop: +p.stop.toFixed(2), t1: +p.t1.toFixed(2), t2: +p.t2.toFixed(2), exitBy: '3:50 PM ET' } : null, appNotes: p.notes, optionIdea: p.opt ? `${p.opt.type} strike ${p.opt.K} exp ${p.opt.exp}, est ${p.opt.atEntry.toFixed(2)} at entry, ${p.opt.atT1.toFixed(2)} at T1, ${p.opt.atStop.toFixed(2)} at stop (Black-Scholes estimate)` : null };
   aiOpen(`Gemini on ${sym} (day trade)`, `Today is ${today()}. This is a same-day (intraday) trade idea from WICKD's 5-minute scanner. Judge whether it's worth taking today. ${store.get('gemSearch', false) ? 'Search for why this stock is moving today (news, earnings, upgrades, offerings).' : ''}\nDATA:\n${JSON.stringify(ctx)}`, `Day-trade check: ${sym} — ${p.status}`);
 }
+function setAI(on) {
+  store.set('aiOn', on); document.body.classList.toggle('noai', !on);
+  $('aiToggle').classList.toggle('ai-on', on); $('aiToggle').textContent = on ? '✨ AI on' : '✨ AI off';
+  if (!on) $('aiSheet').classList.remove('on');
+}
+setAI(store.get('aiOn', true));
+$('aiToggle').onclick = () => setAI(!store.get('aiOn', true));
 $('aiClose').onclick = () => $('aiSheet').classList.remove('on');
 $('aiForm').addEventListener('submit', e => { e.preventDefault(); const q = $('aiQ').value.trim(); if (!q) return; $('aiQ').value = ''; aiSend(q, q); });
 
@@ -1016,13 +1055,13 @@ $('toggles').addEventListener('click', e => {
   show[k] = !show[k]; store.set('show', show); e.target.classList.toggle('on', show[k]); state.B && render();
 });
 document.querySelectorAll('#toggles .tg').forEach(b => b.classList.toggle('on', !!show[b.dataset.k]));
-$('setBtn').onclick = () => { $('keyIn').value = store.get('key', ''); $('gemIn').value = store.get('gem', ''); $('gemModel').value = store.get('gemModel', 'gemini-3.5-flash'); $('gemSearch').checked = !!store.get('gemSearch', false); $('modal').classList.add('on'); };
+$('setBtn').onclick = () => { $('keyIn').value = store.get('key', ''); $('gemIn').value = store.get('gem', ''); $('gemModel').value = store.get('gemModel', 'gemini-3.5-flash'); $('gemSearch').checked = !!store.get('gemSearch', false); $('aiOnIn').checked = store.get('aiOn', true); $('modal').classList.add('on'); };
 $('cancelBtn').onclick = () => $('modal').classList.remove('on');
-$('saveBtn').onclick = () => { store.set('key', $('keyIn').value.trim()); store.set('gem', $('gemIn').value.trim()); store.set('gemModel', $('gemModel').value); store.set('gemSearch', $('gemSearch').checked); searchOff = false; $('modal').classList.remove('on'); load(state.sym); };
+$('saveBtn').onclick = () => { store.set('key', $('keyIn').value.trim()); store.set('gem', $('gemIn').value.trim()); store.set('gemModel', $('gemModel').value); store.set('gemSearch', $('gemSearch').checked); searchOff = false; setAI($('aiOnIn').checked); $('modal').classList.remove('on'); load(state.sym); };
 let timer = null;
 $('autoBtn').onclick = () => {
-  if (timer) { clearInterval(timer); timer = null; $('autoBtn').textContent = '⟳ Auto: off'; }
-  else { timer = setInterval(() => load(state.sym), 120000); $('autoBtn').textContent = '⟳ Auto: 2m'; }
+  if (timer) { clearInterval(timer); timer = null; $('autoBtn').textContent = '⟳ Off'; }
+  else { timer = setInterval(() => load(state.sym), 120000); $('autoBtn').textContent = '⟳ 2m'; }
 };
 
 $('sym').value = state.sym; $('intv').value = state.intv;
