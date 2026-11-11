@@ -1,0 +1,2 @@
+{ "hosting": { "public": ".", "ignore": ["firebase.json", "**/.*", "README*"],
+  "headers": [ { "source": "**/*.@(html|js|webmanifest)", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] } ] } }
