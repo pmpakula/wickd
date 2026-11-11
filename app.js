@@ -448,7 +448,7 @@ function view(name, msg) {
     pending: `<p>Thanks, <b>${em}</b>.<br>Your account is waiting for the admin to approve it.</p>
       <button class="go" id="gCheck">Check again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
     revoked: `<p>Access for <b>${em}</b> was turned off. Contact the admin.</p><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div>`,
-    error: `<p>Couldn't reach the WICKD server.</p><button class="go" id="gCheck">Try again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
+    error: `<p>Couldn't connect to the WICKD server.</p><button class="go" id="gCheck">Try again</button><div class="links"><span></span><button class="lnk" id="gOut">Sign out</button></div><div class="gmsg" id="gmsg"></div>${demoBtn}`,
   };
   $('gView').innerHTML = V[name]; if (msg) gmsg(msg);
   const on = (id, fn) => { const el = $(id); if (el) el.onclick = fn; };
@@ -494,7 +494,11 @@ async function gate() {
   catch (e) {
     if (e.status === 403 && e.message === 'unverified') return view('verify');
     if (e.status === 401) { clearSession(); return view('login', e.message); }
-    return view('error');
+    const why = e instanceof TypeError
+      ? 'The server blocked this site. Check ALLOWED_ORIGINS is exactly https://pmpakula.github.io (no slash at the end), then Deploy.'
+      : e.message === 'Server error' ? 'The server hit an error. Check the USERS storage binding and KEY_SECRET, then Deploy.'
+      : e.message;
+    return view('error', why);
   }
   store.set('email', AUTH.me.email);
   if (AUTH.me.status === 'approved') {
